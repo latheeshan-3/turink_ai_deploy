@@ -198,6 +198,7 @@ from datetime import timedelta
 from langchain_google_vertexai import ChatVertexAI, VertexAIEmbeddings
 from google.cloud import aiplatform
 from vertexai.preview import caching
+from google.oauth2 import service_account
 from dotenv import load_dotenv
 
 #load_dotenv()
@@ -206,16 +207,41 @@ class RAGService:
     def __init__(self):
         self.project = os.getenv("GOOGLE_CLOUD_PROJECT")
         self.location = os.getenv("GOOGLE_CLOUD_REGION", "us-central1")
-        
-        # Initialize Vertex AI
-        aiplatform.init(project=self.project, location=self.location)
-        
+        credentials_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+
+        if not credentials_path or not os.path.exists(credentials_path):
+            raise RuntimeError(
+                f"Service account file not found at {credentials_path}"
+            )
+
+        credentials = service_account.Credentials.from_service_account_file(
+            credentials_path,
+            scopes=["https://www.googleapis.com/auth/cloud-platform"],
+        )
+
+        #  THIS IS THE IMPORTANT PART
+        aiplatform.init(
+            project=self.project,
+            location=self.location,
+            credentials=credentials,
+        )
+
         self.chat_model_name = os.getenv("VERTEX_CHAT_MODEL", "gemini-1.5-flash")
         self.embed_model_name = os.getenv("VERTEX_EMBED_MODEL", "text-embedding-004")
-        
-        self.embeddings_client = VertexAIEmbeddings(model_name=self.embed_model_name)
-        # Default LLM client (without cache)
-        self.llm_client = ChatVertexAI(model_name=self.chat_model_name)
+
+        self.embeddings_client = VertexAIEmbeddings(
+            model_name=self.embed_model_name,
+            project=self.project,
+            location=self.location,
+            credentials=credentials,
+        )
+
+        self.llm_client = ChatVertexAI(
+            model_name=self.chat_model_name,
+            project=self.project,
+            location=self.location,
+            credentials=credentials,
+        )
 
     async def generate_embedding(self, text: str) -> List[float]:
         try:
