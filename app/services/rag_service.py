@@ -1,4 +1,4 @@
-import os
+"""import os
 import json
 import logging
 from typing import List, Optional, Tuple
@@ -188,10 +188,10 @@ class RAGService:
 # -------------------------------------------------------------------
 # Singleton instance (important for performance)
 # -------------------------------------------------------------------
-rag_service = RAGService()
+rag_service = RAGService()"""
 
 
-"""import os
+import os
 import time
 from typing import List, Optional, Any
 from datetime import timedelta
@@ -232,9 +232,9 @@ class RAGService:
         cached_content_name: Optional[str] = None
     ) -> str:
         """
-       # Generates response using Vertex AI. 
-       # If cached_content_name is provided, uses context caching.
-       # Otherwise, uses standard generation.
+        Generates response using Vertex AI. 
+        If cached_content_name is provided, uses context caching.
+        Otherwise, uses standard generation.
 """
         try:
             # Prepare context from chunks
@@ -279,11 +279,11 @@ class RAGService:
         ttl_hours: int = 1
     ) -> Optional[tuple[str, str]]:
         """
-       # Creates a Vertex AI context cache for the system instruction.
-       # Returns tuple of (cache_resource_name, expire_time) or None.
+        Creates a Vertex AI context cache for the system instruction.
+        Returns tuple of (cache_resource_name, expire_time) or None.
         
-      #  NOTE: Vertex AI requires 'contents' parameter with at least one user content.
-       # We provide a placeholder to enable caching of the system instruction.
+        NOTE: Vertex AI requires 'contents' parameter with at least one user content.
+        We provide a placeholder to enable caching of the system instruction.
                                                                               
 """
         try:
@@ -331,13 +331,13 @@ class RAGService:
 
     async def validate_cache_exists(self, cache_name: str) -> bool:
         """
-      #  Validates if a cache exists in Vertex AI by attempting to retrieve it.
+        Validates if a cache exists in Vertex AI by attempting to retrieve it.
         
-      #  Args:
-       #     cache_name: Full cache resource name or just the cache ID
+        Args:
+            cache_name: Full cache resource name or just the cache ID
             
-     #   Returns:
-      #      True if cache exists and is valid, False otherwise
+        Returns:
+            True if cache exists and is valid, False otherwise
 """
         try:
             # Extract cache ID if full resource name provided
@@ -354,4 +354,3 @@ class RAGService:
 
 
 rag_service = RAGService()
-"""
