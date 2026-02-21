@@ -200,7 +200,7 @@ from google.cloud import aiplatform
 from vertexai.preview import caching
 from dotenv import load_dotenv
 
-load_dotenv()
+#load_dotenv()
 
 class RAGService:
     def __init__(self):
