@@ -1,4 +1,197 @@
 import os
+import json
+import logging
+from typing import List, Optional, Tuple
+from datetime import timedelta
+
+from langchain_google_vertexai import ChatVertexAI, VertexAIEmbeddings
+from google.cloud import aiplatform
+from vertexai.preview import caching
+
+# -------------------------------------------------------------------
+# Logging (production safe)
+# -------------------------------------------------------------------
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# -------------------------------------------------------------------
+# Handle GCP Credentials from Render ENV
+# -------------------------------------------------------------------
+def setup_gcp_credentials():
+    creds_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
+
+    if creds_json:
+        key_path = "/tmp/gcp-key.json"
+        with open(key_path, "w") as f:
+            f.write(creds_json)
+
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = key_path
+        logger.info("GCP credentials loaded from ENV")
+    else:
+        logger.warning("GOOGLE_APPLICATION_CREDENTIALS_JSON not found in ENV")
+
+
+setup_gcp_credentials()
+
+
+class RAGService:
+    def __init__(self):
+        self.project = os.getenv("GOOGLE_CLOUD_PROJECT")
+        self.location = os.getenv("GOOGLE_CLOUD_REGION", "us-central1")
+
+        if not self.project:
+            raise ValueError("GOOGLE_CLOUD_PROJECT is not set")
+
+        # Initialize Vertex AI
+        aiplatform.init(
+            project=self.project,
+            location=self.location,
+        )
+
+        self.chat_model_name = os.getenv("VERTEX_CHAT_MODEL", "gemini-1.5-flash")
+        self.embed_model_name = os.getenv("VERTEX_EMBED_MODEL", "text-embedding-004")
+
+        logger.info(f"Initializing Vertex AI models:")
+        logger.info(f"Chat model: {self.chat_model_name}")
+        logger.info(f"Embedding model: {self.embed_model_name}")
+
+        # Initialize clients once (singleton usage recommended)
+        self.embeddings_client = VertexAIEmbeddings(
+            model_name=self.embed_model_name
+        )
+
+        self.llm_client = ChatVertexAI(
+            model_name=self.chat_model_name
+        )
+
+    # -------------------------------------------------------------------
+    # Generate Embedding
+    # -------------------------------------------------------------------
+    async def generate_embedding(self, text: str) -> List[float]:
+        try:
+            return await self.embeddings_client.aembed_query(text)
+        except Exception as e:
+            logger.exception("Error generating embedding")
+            return []
+
+    # -------------------------------------------------------------------
+    # Generate Response (with optional cache)
+    # -------------------------------------------------------------------
+    async def generate_response(
+        self,
+        user_query: str,
+        context_chunks: List[str],
+        system_instruction: str,
+        cached_content_name: Optional[str] = None,
+    ) -> str:
+
+        try:
+            context_str = "\n\n".join(context_chunks)
+            full_prompt = f"Context:\n{context_str}\n\nUser Question: {user_query}"
+
+            if cached_content_name:
+                cache_id = (
+                    cached_content_name.split("/")[-1]
+                    if "/" in cached_content_name
+                    else cached_content_name
+                )
+
+                logger.info(f"Using Vertex context cache: {cache_id}")
+
+                model_with_cache = ChatVertexAI(
+                    model_name=self.chat_model_name,
+                    cached_content=cache_id,
+                )
+
+                response = await model_with_cache.ainvoke(full_prompt)
+                return response.content
+
+            # Standard generation
+            messages = [
+                ("system", system_instruction),
+                ("human", full_prompt),
+            ]
+
+            response = await self.llm_client.ainvoke(messages)
+            return response.content
+
+        except Exception:
+            logger.exception("Error generating response")
+            return "I apologize, but I encountered an error generating the response."
+
+    # -------------------------------------------------------------------
+    # Create Context Cache
+    # -------------------------------------------------------------------
+    async def create_context_cache(
+        self,
+        system_instruction: str,
+        ttl_hours: int = 1,
+    ) -> Optional[Tuple[str, Optional[str]]]:
+
+        try:
+            logger.info(f"Creating context cache (TTL: {ttl_hours}h)")
+
+            from vertexai.generative_models import Content, Part
+
+            placeholder_content = Content(
+                role="user",
+                parts=[Part.from_text("Cache placeholder")],
+            )
+
+            cached_content = caching.CachedContent.create(
+                model_name=self.chat_model_name,
+                system_instruction=system_instruction,
+                contents=[placeholder_content],
+                ttl=timedelta(hours=ttl_hours),
+            )
+
+            cache_resource_name = (
+                cached_content.resource_name
+                if hasattr(cached_content, "resource_name")
+                else cached_content.name
+            )
+
+            expire_time = (
+                cached_content.expire_time.isoformat()
+                if hasattr(cached_content, "expire_time")
+                else None
+            )
+
+            logger.info(f"Cache created: {cache_resource_name}")
+
+            return cache_resource_name, expire_time
+
+        except Exception:
+            logger.exception("Error creating context cache")
+            return None
+
+    # -------------------------------------------------------------------
+    # Validate Cache Exists
+    # -------------------------------------------------------------------
+    async def validate_cache_exists(self, cache_name: str) -> bool:
+        try:
+            cache_id = (
+                cache_name.split("/")[-1]
+                if "/" in cache_name
+                else cache_name
+            )
+
+            caching.CachedContent.get(cache_id)
+            logger.info(f"Cache valid: {cache_id}")
+            return True
+
+        except Exception:
+            logger.warning(f"Cache invalid: {cache_name}")
+            return False
+
+
+# -------------------------------------------------------------------
+# Singleton instance (important for performance)
+# -------------------------------------------------------------------
+rag_service = RAGService()
+
+
+"""import os
 import time
 from typing import List, Optional, Any
 from datetime import timedelta
@@ -39,9 +232,9 @@ class RAGService:
         cached_content_name: Optional[str] = None
     ) -> str:
         """
-        Generates response using Vertex AI. 
-        If cached_content_name is provided, uses context caching.
-        Otherwise, uses standard generation.
+       # Generates response using Vertex AI. 
+       # If cached_content_name is provided, uses context caching.
+       # Otherwise, uses standard generation.
         """
         try:
             # Prepare context from chunks
@@ -86,11 +279,11 @@ class RAGService:
         ttl_hours: int = 1
     ) -> Optional[tuple[str, str]]:
         """
-        Creates a Vertex AI context cache for the system instruction.
-        Returns tuple of (cache_resource_name, expire_time) or None.
+       # Creates a Vertex AI context cache for the system instruction.
+       # Returns tuple of (cache_resource_name, expire_time) or None.
         
-        NOTE: Vertex AI requires 'contents' parameter with at least one user content.
-        We provide a placeholder to enable caching of the system instruction.
+      #  NOTE: Vertex AI requires 'contents' parameter with at least one user content.
+       # We provide a placeholder to enable caching of the system instruction.
         """
         try:
             print(f"Creating Vertex AI context cache with TTL: {ttl_hours} hours")
@@ -137,13 +330,13 @@ class RAGService:
 
     async def validate_cache_exists(self, cache_name: str) -> bool:
         """
-        Validates if a cache exists in Vertex AI by attempting to retrieve it.
+      #  Validates if a cache exists in Vertex AI by attempting to retrieve it.
         
-        Args:
-            cache_name: Full cache resource name or just the cache ID
+      #  Args:
+       #     cache_name: Full cache resource name or just the cache ID
             
-        Returns:
-            True if cache exists and is valid, False otherwise
+     #   Returns:
+      #      True if cache exists and is valid, False otherwise
         """
         try:
             # Extract cache ID if full resource name provided
@@ -160,3 +353,4 @@ class RAGService:
 
 
 rag_service = RAGService()
+"""
