@@ -235,7 +235,7 @@ class RAGService:
        # Generates response using Vertex AI. 
        # If cached_content_name is provided, uses context caching.
        # Otherwise, uses standard generation.
-        """
+"""
         try:
             # Prepare context from chunks
             context_str = "\n\n".join(context_chunks)
@@ -284,7 +284,8 @@ class RAGService:
         
       #  NOTE: Vertex AI requires 'contents' parameter with at least one user content.
        # We provide a placeholder to enable caching of the system instruction.
-        """
+                                                                              
+"""
         try:
             print(f"Creating Vertex AI context cache with TTL: {ttl_hours} hours")
             
@@ -337,7 +338,7 @@ class RAGService:
             
      #   Returns:
       #      True if cache exists and is valid, False otherwise
-        """
+"""
         try:
             # Extract cache ID if full resource name provided
             cache_id = cache_name.split('/')[-1] if '/' in cache_name else cache_name
